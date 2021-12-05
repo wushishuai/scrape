@@ -17,4 +17,4 @@ print(rp.can_fetch('Baiduspider', 'http://www.baidu.com'))
 print(rp.can_fetch('Baiduspider', 'http://www.baidu.com/homepage/'))
 
 print(rp.can_fetch('Googlebot', "http://www.baidu.com/homepage/"))
-'''push test'''
+'''push test ----------'''

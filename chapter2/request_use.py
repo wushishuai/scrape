@@ -11,8 +11,8 @@ print(r.cookies)
 
 '''requests 其他请求类型使用'''
 
-r = requests.get('https://www.httpbin.org/get')
-r = requests.post('https://www.httpbin.org/post')
-r = requests.put('https://www.httpbin.org/put')
-r = requests.delete('https://www.httpbin.org/delete')
-r = requests.patch('https://www.httpbin.org/patch')
+# r = requests.get('https://www.httpbin.org/get')
+# r = requests.post('https://www.httpbin.org/post')
+# r = requests.put('https://www.httpbin.org/put')
+# r = requests.delete('https://www.httpbin.org/delete')
+# r = requests.patch('https://www.httpbin.org/patch')

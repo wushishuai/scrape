@@ -70,14 +70,14 @@ import time
 '''获取页面源代码'''
 
 
-# with sync_playwright() as p:
-#     browser = p.chromium.launch(headless=False)
-#     page = browser.new_page()
-#     page.goto('https://spa6.scrape.center/')
-#     page.wait_for_load_state('networkidle')
-#     html = page.content()
-#     print(html)
-#     browser.close()
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=False)
+    page = browser.new_page()
+    page.goto('https://660e.com/?url=https://v.qq.com/x/cover/mzc00200lxzhhqz/d0040q5zhb7.html')
+    page.wait_for_load_state('networkidle')
+    html = page.content()
+    print(html)
+    browser.close()
 
 '''网络劫持'''
 
@@ -95,15 +95,15 @@ import time
 #     page.screenshot(path='no_picture.png')
 #     time.sleep(10)
 #     browser.close()
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    page = browser.new_page()
-
-    def modify_response(route, request):
-        route.fulfill(path="./custom_response.html")
-
-    page.route('/', modify_response)
-    page.goto("https://spa6.scrape.center/")
-    time.sleep(10)
-    browser.close()
+#
+# with sync_playwright() as p:
+#     browser = p.chromium.launch(headless=False)
+#     page = browser.new_page()
+#
+#     def modify_response(route, request):
+#         route.fulfill(path="./custom_response.html")
+#
+#     page.route('/', modify_response)
+#     page.goto("https://spa6.scrape.center/")
+#     time.sleep(10)
+#     browser.close()

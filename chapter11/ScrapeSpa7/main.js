@@ -1,8 +1,8 @@
-const CryptoJS = require("./Cryptos.js");
-//const express = require("express");
-//const app = express();
-//const port 3000;
-//app.use(express.json);
+const CryptoJS = require("./Cryptos");
+const express = require("express");
+const app = express();
+const port = 3000;
+app.use(express.json());
 
  function getToken(player) {
       let key = CryptoJS.enc.Utf8.parse("fipFfVsZsTda94hJNKJfLoaqyqMZFFimwLt");
@@ -18,20 +18,20 @@ const CryptoJS = require("./Cryptos.js");
       return encrypted.toString();
 }
 
-//app.post("/",(req,res) =>{
-//  const data = req.body;
-//  res.send(getToken(data));
-//  });
-//
-//app.listen(port,() =>{
-//console.log('Example app listening on port ${port}!');
-//});
+app.post("/",(req,res) =>{
+  const data = req.body;
+  res.send(getToken(data));
+  });
 
-const player = {
-name:"凯文-杜兰特",
-image:"durant.png",
-birthday:"1988-09-29",
-height:"208cm",
-weight:"108.9KG"
-}
-console.log(getToken(player))
+app.listen(port,() =>{
+console.log('Example app listening on port ${port}!');
+});
+
+//const player = {
+//name:"凯文-杜兰特",
+//image:"durant.png",
+//birthday:"1988-09-29",
+//height:"208cm",
+//weight:"108.9KG"
+//}
+//console.log(getToken(player))

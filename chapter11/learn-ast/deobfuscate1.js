@@ -4,7 +4,7 @@ import generate from "@babel/generator";
 import * as types from "@babel/types";
 import fs from "fs";
 
-const code = fs.readFileSync("code1.js", "utf-8");
+const code = fs.readFileSync("obfuscatecodes/code1.js", "utf-8");
 let ast = parse(code);
 
 traverse(ast, {

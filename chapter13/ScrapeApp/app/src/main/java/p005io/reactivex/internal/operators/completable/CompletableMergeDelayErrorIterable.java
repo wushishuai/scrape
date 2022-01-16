@@ -1,0 +1,73 @@
+package p005io.reactivex.internal.operators.completable;
+
+import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicInteger;
+import p005io.reactivex.Completable;
+import p005io.reactivex.CompletableObserver;
+import p005io.reactivex.CompletableSource;
+import p005io.reactivex.disposables.CompositeDisposable;
+import p005io.reactivex.exceptions.Exceptions;
+import p005io.reactivex.internal.functions.ObjectHelper;
+import p005io.reactivex.internal.operators.completable.CompletableMergeDelayErrorArray;
+import p005io.reactivex.internal.util.AtomicThrowable;
+
+/* renamed from: io.reactivex.internal.operators.completable.CompletableMergeDelayErrorIterable */
+/* loaded from: classes.dex */
+public final class CompletableMergeDelayErrorIterable extends Completable {
+    final Iterable<? extends CompletableSource> sources;
+
+    public CompletableMergeDelayErrorIterable(Iterable<? extends CompletableSource> sources) {
+        this.sources = sources;
+    }
+
+    @Override // p005io.reactivex.Completable
+    public void subscribeActual(CompletableObserver observer) {
+        CompositeDisposable set = new CompositeDisposable();
+        observer.onSubscribe(set);
+        try {
+            Iterator<? extends CompletableSource> iterator = (Iterator) ObjectHelper.requireNonNull(this.sources.iterator(), "The source iterator returned is null");
+            AtomicInteger wip = new AtomicInteger(1);
+            AtomicThrowable error = new AtomicThrowable();
+            while (!set.isDisposed()) {
+                try {
+                    if (iterator.hasNext()) {
+                        if (!set.isDisposed()) {
+                            try {
+                                CompletableSource c = (CompletableSource) ObjectHelper.requireNonNull(iterator.next(), "The iterator returned a null CompletableSource");
+                                if (!set.isDisposed()) {
+                                    wip.getAndIncrement();
+                                    c.subscribe(new CompletableMergeDelayErrorArray.MergeInnerCompletableObserver(observer, set, error, wip));
+                                } else {
+                                    return;
+                                }
+                            } catch (Throwable e) {
+                                Exceptions.throwIfFatal(e);
+                                error.addThrowable(e);
+                            }
+                        } else {
+                            return;
+                        }
+                    }
+                } catch (Throwable e2) {
+                    Exceptions.throwIfFatal(e2);
+                    error.addThrowable(e2);
+                }
+                if (wip.decrementAndGet() == 0) {
+                    Throwable ex = error.terminate();
+                    if (ex == null) {
+                        observer.onComplete();
+                        return;
+                    } else {
+                        observer.onError(ex);
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+        } catch (Throwable e3) {
+            Exceptions.throwIfFatal(e3);
+            observer.onError(e3);
+        }
+    }
+}

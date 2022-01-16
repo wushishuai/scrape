@@ -1,0 +1,795 @@
+package p005io.reactivex.internal.operators.observable;
+
+import android.support.p003v7.widget.ActivityChooserView;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import p005io.reactivex.Observable;
+import p005io.reactivex.ObservableSource;
+import p005io.reactivex.Observer;
+import p005io.reactivex.Scheduler;
+import p005io.reactivex.disposables.Disposable;
+import p005io.reactivex.exceptions.Exceptions;
+import p005io.reactivex.functions.Consumer;
+import p005io.reactivex.functions.Function;
+import p005io.reactivex.internal.disposables.DisposableHelper;
+import p005io.reactivex.internal.disposables.EmptyDisposable;
+import p005io.reactivex.internal.disposables.ResettableConnectable;
+import p005io.reactivex.internal.functions.ObjectHelper;
+import p005io.reactivex.internal.fuseable.HasUpstreamObservableSource;
+import p005io.reactivex.internal.util.ExceptionHelper;
+import p005io.reactivex.internal.util.NotificationLite;
+import p005io.reactivex.observables.ConnectableObservable;
+import p005io.reactivex.plugins.RxJavaPlugins;
+import p005io.reactivex.schedulers.Timed;
+
+/* renamed from: io.reactivex.internal.operators.observable.ObservableReplay */
+/* loaded from: classes.dex */
+public final class ObservableReplay<T> extends ConnectableObservable<T> implements HasUpstreamObservableSource<T>, ResettableConnectable {
+    static final BufferSupplier DEFAULT_UNBOUNDED_FACTORY = new UnBoundedFactory();
+    final BufferSupplier<T> bufferFactory;
+    final AtomicReference<ReplayObserver<T>> current;
+    final ObservableSource<T> onSubscribe;
+    final ObservableSource<T> source;
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$BufferSupplier */
+    /* loaded from: classes.dex */
+    public interface BufferSupplier<T> {
+        ReplayBuffer<T> call();
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$ReplayBuffer */
+    /* loaded from: classes.dex */
+    public interface ReplayBuffer<T> {
+        void complete();
+
+        void error(Throwable th);
+
+        void next(T t);
+
+        void replay(InnerDisposable<T> innerDisposable);
+    }
+
+    public static <U, R> Observable<R> multicastSelector(Callable<? extends ConnectableObservable<U>> connectableFactory, Function<? super Observable<U>, ? extends ObservableSource<R>> selector) {
+        return RxJavaPlugins.onAssembly(new MulticastReplay(connectableFactory, selector));
+    }
+
+    public static <T> ConnectableObservable<T> observeOn(ConnectableObservable<T> co, Scheduler scheduler) {
+        return RxJavaPlugins.onAssembly((ConnectableObservable) new Replay(co, co.observeOn(scheduler)));
+    }
+
+    public static <T> ConnectableObservable<T> createFrom(ObservableSource<? extends T> source) {
+        return create(source, DEFAULT_UNBOUNDED_FACTORY);
+    }
+
+    public static <T> ConnectableObservable<T> create(ObservableSource<T> source, int bufferSize) {
+        if (bufferSize == Integer.MAX_VALUE) {
+            return createFrom(source);
+        }
+        return create(source, new ReplayBufferSupplier(bufferSize));
+    }
+
+    public static <T> ConnectableObservable<T> create(ObservableSource<T> source, long maxAge, TimeUnit unit, Scheduler scheduler) {
+        return create(source, maxAge, unit, scheduler, ActivityChooserView.ActivityChooserViewAdapter.MAX_ACTIVITY_COUNT_UNLIMITED);
+    }
+
+    public static <T> ConnectableObservable<T> create(ObservableSource<T> source, long maxAge, TimeUnit unit, Scheduler scheduler, int bufferSize) {
+        return create(source, new ScheduledReplaySupplier(bufferSize, maxAge, unit, scheduler));
+    }
+
+    static <T> ConnectableObservable<T> create(ObservableSource<T> source, BufferSupplier<T> bufferFactory) {
+        AtomicReference<ReplayObserver<T>> curr = new AtomicReference<>();
+        return RxJavaPlugins.onAssembly((ConnectableObservable) new ObservableReplay(new ReplaySource<>(curr, bufferFactory), source, curr, bufferFactory));
+    }
+
+    private ObservableReplay(ObservableSource<T> onSubscribe, ObservableSource<T> source, AtomicReference<ReplayObserver<T>> current, BufferSupplier<T> bufferFactory) {
+        this.onSubscribe = onSubscribe;
+        this.source = source;
+        this.current = current;
+        this.bufferFactory = bufferFactory;
+    }
+
+    @Override // p005io.reactivex.internal.fuseable.HasUpstreamObservableSource
+    public ObservableSource<T> source() {
+        return this.source;
+    }
+
+    @Override // p005io.reactivex.internal.disposables.ResettableConnectable
+    public void resetIf(Disposable connectionObject) {
+        this.current.compareAndSet((ReplayObserver) connectionObject, null);
+    }
+
+    @Override // p005io.reactivex.Observable
+    protected void subscribeActual(Observer<? super T> observer) {
+        this.onSubscribe.subscribe(observer);
+    }
+
+    @Override // p005io.reactivex.observables.ConnectableObservable
+    public void connect(Consumer<? super Disposable> connection) {
+        ReplayObserver<T> ps;
+        while (true) {
+            ps = this.current.get();
+            if (ps != null && !ps.isDisposed()) {
+                break;
+            }
+            ReplayObserver<T> u = new ReplayObserver<>(this.bufferFactory.call());
+            if (this.current.compareAndSet(ps, u)) {
+                ps = u;
+                break;
+            }
+        }
+        boolean doConnect = !ps.shouldConnect.get() && ps.shouldConnect.compareAndSet(false, true);
+        try {
+            connection.accept(ps);
+            if (doConnect) {
+                this.source.subscribe(ps);
+            }
+        } catch (Throwable ex) {
+            if (doConnect) {
+                ps.shouldConnect.compareAndSet(true, false);
+            }
+            Exceptions.throwIfFatal(ex);
+            throw ExceptionHelper.wrapOrThrow(ex);
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$ReplayObserver */
+    /* loaded from: classes.dex */
+    static final class ReplayObserver<T> extends AtomicReference<Disposable> implements Observer<T>, Disposable {
+        static final InnerDisposable[] EMPTY = new InnerDisposable[0];
+        static final InnerDisposable[] TERMINATED = new InnerDisposable[0];
+        private static final long serialVersionUID = -533785617179540163L;
+        final ReplayBuffer<T> buffer;
+        boolean done;
+        final AtomicReference<InnerDisposable[]> observers = new AtomicReference<>(EMPTY);
+        final AtomicBoolean shouldConnect = new AtomicBoolean();
+
+        ReplayObserver(ReplayBuffer<T> buffer) {
+            this.buffer = buffer;
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public boolean isDisposed() {
+            return this.observers.get() == TERMINATED;
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public void dispose() {
+            this.observers.set(TERMINATED);
+            DisposableHelper.dispose(this);
+        }
+
+        boolean add(InnerDisposable<T> producer) {
+            InnerDisposable[] c;
+            InnerDisposable[] u;
+            do {
+                c = this.observers.get();
+                if (c == TERMINATED) {
+                    return false;
+                }
+                int len = c.length;
+                u = new InnerDisposable[len + 1];
+                System.arraycopy(c, 0, u, 0, len);
+                u[len] = producer;
+            } while (!this.observers.compareAndSet(c, u));
+            return true;
+        }
+
+        void remove(InnerDisposable<T> producer) {
+            InnerDisposable[] c;
+            InnerDisposable[] u;
+            do {
+                c = this.observers.get();
+                int len = c.length;
+                if (len != 0) {
+                    int j = -1;
+                    int i = 0;
+                    while (true) {
+                        if (i >= len) {
+                            break;
+                        } else if (c[i].equals(producer)) {
+                            j = i;
+                            break;
+                        } else {
+                            i++;
+                        }
+                    }
+                    if (j >= 0) {
+                        if (len == 1) {
+                            u = EMPTY;
+                        } else {
+                            InnerDisposable[] u2 = new InnerDisposable[len - 1];
+                            System.arraycopy(c, 0, u2, 0, j);
+                            System.arraycopy(c, j + 1, u2, j, (len - j) - 1);
+                            u = u2;
+                        }
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            } while (!this.observers.compareAndSet(c, u));
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onSubscribe(Disposable p) {
+            if (DisposableHelper.setOnce(this, p)) {
+                replay();
+            }
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onNext(T t) {
+            if (!this.done) {
+                this.buffer.next(t);
+                replay();
+            }
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onError(Throwable e) {
+            if (!this.done) {
+                this.done = true;
+                this.buffer.error(e);
+                replayFinal();
+                return;
+            }
+            RxJavaPlugins.onError(e);
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onComplete() {
+            if (!this.done) {
+                this.done = true;
+                this.buffer.complete();
+                replayFinal();
+            }
+        }
+
+        void replay() {
+            for (InnerDisposable<T> rp : this.observers.get()) {
+                this.buffer.replay(rp);
+            }
+        }
+
+        void replayFinal() {
+            for (InnerDisposable<T> rp : this.observers.getAndSet(TERMINATED)) {
+                this.buffer.replay(rp);
+            }
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$InnerDisposable */
+    /* loaded from: classes.dex */
+    public static final class InnerDisposable<T> extends AtomicInteger implements Disposable {
+        private static final long serialVersionUID = 2728361546769921047L;
+        volatile boolean cancelled;
+        final Observer<? super T> child;
+        Object index;
+        final ReplayObserver<T> parent;
+
+        InnerDisposable(ReplayObserver<T> parent, Observer<? super T> child) {
+            this.parent = parent;
+            this.child = child;
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public boolean isDisposed() {
+            return this.cancelled;
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public void dispose() {
+            if (!this.cancelled) {
+                this.cancelled = true;
+                this.parent.remove(this);
+            }
+        }
+
+        <U> U index() {
+            return (U) this.index;
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$UnboundedReplayBuffer */
+    /* loaded from: classes.dex */
+    static final class UnboundedReplayBuffer<T> extends ArrayList<Object> implements ReplayBuffer<T> {
+        private static final long serialVersionUID = 7063189396499112664L;
+        volatile int size;
+
+        UnboundedReplayBuffer(int capacityHint) {
+            super(capacityHint);
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public void next(T value) {
+            add(NotificationLite.next(value));
+            this.size++;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public void error(Throwable e) {
+            add(NotificationLite.error(e));
+            this.size++;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public void complete() {
+            add(NotificationLite.complete());
+            this.size++;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public void replay(InnerDisposable<T> output) {
+            if (output.getAndIncrement() == 0) {
+                Observer<? super T> child = output.child;
+                int missed = 1;
+                while (!output.isDisposed()) {
+                    int sourceIndex = this.size;
+                    Integer destinationIndexObject = (Integer) output.index();
+                    int destinationIndex = destinationIndexObject != null ? destinationIndexObject.intValue() : 0;
+                    while (destinationIndex < sourceIndex) {
+                        if (!NotificationLite.accept(get(destinationIndex), child) && !output.isDisposed()) {
+                            destinationIndex++;
+                        } else {
+                            return;
+                        }
+                    }
+                    output.index = Integer.valueOf(destinationIndex);
+                    missed = output.addAndGet(-missed);
+                    if (missed == 0) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$Node */
+    /* loaded from: classes.dex */
+    public static final class Node extends AtomicReference<Node> {
+        private static final long serialVersionUID = 245354315435971818L;
+        final Object value;
+
+        Node(Object value) {
+            this.value = value;
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$BoundedReplayBuffer */
+    /* loaded from: classes.dex */
+    static abstract class BoundedReplayBuffer<T> extends AtomicReference<Node> implements ReplayBuffer<T> {
+        private static final long serialVersionUID = 2346567790059478686L;
+        int size;
+        Node tail;
+
+        abstract void truncate();
+
+        BoundedReplayBuffer() {
+            Node n = new Node(null);
+            this.tail = n;
+            set(n);
+        }
+
+        final void addLast(Node n) {
+            this.tail.set(n);
+            this.tail = n;
+            this.size++;
+        }
+
+        final void removeFirst() {
+            this.size--;
+            setFirst(get().get());
+        }
+
+        final void trimHead() {
+            Node head = get();
+            if (head.value != null) {
+                Node n = new Node(null);
+                n.lazySet(head.get());
+                set(n);
+            }
+        }
+
+        final void removeSome(int n) {
+            Node head = get();
+            while (n > 0) {
+                head = head.get();
+                n--;
+                this.size--;
+            }
+            setFirst(head);
+        }
+
+        final void setFirst(Node n) {
+            set(n);
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public final void next(T value) {
+            addLast(new Node(enterTransform(NotificationLite.next(value))));
+            truncate();
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public final void error(Throwable e) {
+            addLast(new Node(enterTransform(NotificationLite.error(e))));
+            truncateFinal();
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public final void complete() {
+            addLast(new Node(enterTransform(NotificationLite.complete())));
+            truncateFinal();
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.ReplayBuffer
+        public final void replay(InnerDisposable<T> output) {
+            if (output.getAndIncrement() == 0) {
+                int missed = 1;
+                do {
+                    Node node = (Node) output.index();
+                    if (node == null) {
+                        node = getHead();
+                        output.index = node;
+                    }
+                    while (!output.isDisposed()) {
+                        Node v = node.get();
+                        if (v == null) {
+                            output.index = node;
+                            missed = output.addAndGet(-missed);
+                        } else if (NotificationLite.accept(leaveTransform(v.value), output.child)) {
+                            output.index = null;
+                            return;
+                        } else {
+                            node = v;
+                        }
+                    }
+                    return;
+                } while (missed != 0);
+            }
+        }
+
+        Object enterTransform(Object value) {
+            return value;
+        }
+
+        Object leaveTransform(Object value) {
+            return value;
+        }
+
+        void truncateFinal() {
+            trimHead();
+        }
+
+        final void collect(Collection<? super T> output) {
+            Node n = getHead();
+            while (true) {
+                Node next = n.get();
+                if (next != null) {
+                    Object v = leaveTransform(next.value);
+                    if (!NotificationLite.isComplete(v) && !NotificationLite.isError(v)) {
+                        output.add((Object) NotificationLite.getValue(v));
+                        n = next;
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+        }
+
+        boolean hasError() {
+            return this.tail.value != null && NotificationLite.isError(leaveTransform(this.tail.value));
+        }
+
+        boolean hasCompleted() {
+            return this.tail.value != null && NotificationLite.isComplete(leaveTransform(this.tail.value));
+        }
+
+        Node getHead() {
+            return get();
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$SizeBoundReplayBuffer */
+    /* loaded from: classes.dex */
+    static final class SizeBoundReplayBuffer<T> extends BoundedReplayBuffer<T> {
+        private static final long serialVersionUID = -5898283885385201806L;
+        final int limit;
+
+        SizeBoundReplayBuffer(int limit) {
+            this.limit = limit;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BoundedReplayBuffer
+        void truncate() {
+            if (this.size > this.limit) {
+                removeFirst();
+            }
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$SizeAndTimeBoundReplayBuffer */
+    /* loaded from: classes.dex */
+    static final class SizeAndTimeBoundReplayBuffer<T> extends BoundedReplayBuffer<T> {
+        private static final long serialVersionUID = 3457957419649567404L;
+        final int limit;
+        final long maxAge;
+        final Scheduler scheduler;
+        final TimeUnit unit;
+
+        SizeAndTimeBoundReplayBuffer(int limit, long maxAge, TimeUnit unit, Scheduler scheduler) {
+            this.scheduler = scheduler;
+            this.limit = limit;
+            this.maxAge = maxAge;
+            this.unit = unit;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BoundedReplayBuffer
+        Object enterTransform(Object value) {
+            return new Timed(value, this.scheduler.now(this.unit), this.unit);
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BoundedReplayBuffer
+        Object leaveTransform(Object value) {
+            return ((Timed) value).value();
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BoundedReplayBuffer
+        void truncate() {
+            long timeLimit = this.scheduler.now(this.unit) - this.maxAge;
+            Node prev = (Node) get();
+            Node next = prev.get();
+            int e = 0;
+            while (next != null) {
+                if (this.size <= this.limit) {
+                    if (((Timed) next.value).time() > timeLimit) {
+                        break;
+                    }
+                    e++;
+                    this.size--;
+                    prev = next;
+                    next = next.get();
+                } else {
+                    e++;
+                    this.size--;
+                    prev = next;
+                    next = next.get();
+                }
+            }
+            if (e != 0) {
+                setFirst(prev);
+            }
+        }
+
+        /* JADX WARN: Code restructure failed: missing block: B:10:0x003d, code lost:
+            setFirst(r2);
+         */
+        /* JADX WARN: Code restructure failed: missing block: B:11:0x0040, code lost:
+            return;
+         */
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BoundedReplayBuffer
+        /*
+            Code decompiled incorrectly, please refer to instructions dump.
+            To view partially-correct code enable 'Show inconsistent code' option in preferences
+        */
+        void truncateFinal() {
+            /*
+                r10 = this;
+                io.reactivex.Scheduler r0 = r10.scheduler
+                java.util.concurrent.TimeUnit r1 = r10.unit
+                long r0 = r0.now(r1)
+                long r2 = r10.maxAge
+                long r0 = r0 - r2
+                java.lang.Object r2 = r10.get()
+                io.reactivex.internal.operators.observable.ObservableReplay$Node r2 = (p005io.reactivex.internal.operators.observable.ObservableReplay.Node) r2
+                java.lang.Object r3 = r2.get()
+                io.reactivex.internal.operators.observable.ObservableReplay$Node r3 = (p005io.reactivex.internal.operators.observable.ObservableReplay.Node) r3
+                r4 = 0
+            L_0x0018:
+                if (r3 == 0) goto L_0x003b
+                int r5 = r10.size
+                r6 = 1
+                if (r5 <= r6) goto L_0x003b
+                java.lang.Object r5 = r3.value
+                io.reactivex.schedulers.Timed r5 = (p005io.reactivex.schedulers.Timed) r5
+                long r7 = r5.time()
+                int r9 = (r7 > r0 ? 1 : (r7 == r0 ? 0 : -1))
+                if (r9 > 0) goto L_0x003b
+                int r4 = r4 + 1
+                int r7 = r10.size
+                int r7 = r7 - r6
+                r10.size = r7
+                r2 = r3
+                java.lang.Object r6 = r3.get()
+                r3 = r6
+                io.reactivex.internal.operators.observable.ObservableReplay$Node r3 = (p005io.reactivex.internal.operators.observable.ObservableReplay.Node) r3
+                goto L_0x0018
+            L_0x003b:
+                if (r4 == 0) goto L_0x0040
+                r10.setFirst(r2)
+            L_0x0040:
+                return
+            */
+            throw new UnsupportedOperationException("Method not decompiled: p005io.reactivex.internal.operators.observable.ObservableReplay.SizeAndTimeBoundReplayBuffer.truncateFinal():void");
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BoundedReplayBuffer
+        Node getHead() {
+            long timeLimit = this.scheduler.now(this.unit) - this.maxAge;
+            Node prev = (Node) get();
+            for (Node next = prev.get(); next != null; next = next.get()) {
+                Timed<?> v = (Timed) next.value;
+                if (NotificationLite.isComplete(v.value()) || NotificationLite.isError(v.value()) || v.time() > timeLimit) {
+                    break;
+                }
+                prev = next;
+            }
+            return prev;
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$UnBoundedFactory */
+    /* loaded from: classes.dex */
+    static final class UnBoundedFactory implements BufferSupplier<Object> {
+        UnBoundedFactory() {
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BufferSupplier
+        public ReplayBuffer<Object> call() {
+            return new UnboundedReplayBuffer(16);
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$DisposeConsumer */
+    /* loaded from: classes.dex */
+    static final class DisposeConsumer<R> implements Consumer<Disposable> {
+        private final ObserverResourceWrapper<R> srw;
+
+        DisposeConsumer(ObserverResourceWrapper<R> srw) {
+            this.srw = srw;
+        }
+
+        public void accept(Disposable r) {
+            this.srw.setResource(r);
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$ReplayBufferSupplier */
+    /* loaded from: classes.dex */
+    public static final class ReplayBufferSupplier<T> implements BufferSupplier<T> {
+        private final int bufferSize;
+
+        ReplayBufferSupplier(int bufferSize) {
+            this.bufferSize = bufferSize;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BufferSupplier
+        public ReplayBuffer<T> call() {
+            return new SizeBoundReplayBuffer(this.bufferSize);
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$ScheduledReplaySupplier */
+    /* loaded from: classes.dex */
+    public static final class ScheduledReplaySupplier<T> implements BufferSupplier<T> {
+        private final int bufferSize;
+        private final long maxAge;
+        private final Scheduler scheduler;
+        private final TimeUnit unit;
+
+        ScheduledReplaySupplier(int bufferSize, long maxAge, TimeUnit unit, Scheduler scheduler) {
+            this.bufferSize = bufferSize;
+            this.maxAge = maxAge;
+            this.unit = unit;
+            this.scheduler = scheduler;
+        }
+
+        @Override // p005io.reactivex.internal.operators.observable.ObservableReplay.BufferSupplier
+        public ReplayBuffer<T> call() {
+            return new SizeAndTimeBoundReplayBuffer(this.bufferSize, this.maxAge, this.unit, this.scheduler);
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$ReplaySource */
+    /* loaded from: classes.dex */
+    public static final class ReplaySource<T> implements ObservableSource<T> {
+        private final BufferSupplier<T> bufferFactory;
+        private final AtomicReference<ReplayObserver<T>> curr;
+
+        ReplaySource(AtomicReference<ReplayObserver<T>> curr, BufferSupplier<T> bufferFactory) {
+            this.curr = curr;
+            this.bufferFactory = bufferFactory;
+        }
+
+        @Override // p005io.reactivex.ObservableSource
+        public void subscribe(Observer<? super T> child) {
+            ReplayObserver<T> r;
+            while (true) {
+                r = this.curr.get();
+                if (r != null) {
+                    break;
+                }
+                ReplayObserver<T> u = new ReplayObserver<>(this.bufferFactory.call());
+                if (this.curr.compareAndSet(null, u)) {
+                    r = u;
+                    break;
+                }
+            }
+            InnerDisposable<T> inner = new InnerDisposable<>(r, child);
+            child.onSubscribe(inner);
+            r.add(inner);
+            if (inner.isDisposed()) {
+                r.remove(inner);
+            } else {
+                r.buffer.replay(inner);
+            }
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$MulticastReplay */
+    /* loaded from: classes.dex */
+    public static final class MulticastReplay<R, U> extends Observable<R> {
+        private final Callable<? extends ConnectableObservable<U>> connectableFactory;
+        private final Function<? super Observable<U>, ? extends ObservableSource<R>> selector;
+
+        MulticastReplay(Callable<? extends ConnectableObservable<U>> connectableFactory, Function<? super Observable<U>, ? extends ObservableSource<R>> selector) {
+            this.connectableFactory = connectableFactory;
+            this.selector = selector;
+        }
+
+        @Override // p005io.reactivex.Observable
+        protected void subscribeActual(Observer<? super R> child) {
+            try {
+                ConnectableObservable<U> co = (ConnectableObservable) ObjectHelper.requireNonNull(this.connectableFactory.call(), "The connectableFactory returned a null ConnectableObservable");
+                ObservableSource<R> observable = (ObservableSource) ObjectHelper.requireNonNull(this.selector.apply(co), "The selector returned a null ObservableSource");
+                ObserverResourceWrapper<R> srw = new ObserverResourceWrapper<>(child);
+                observable.subscribe(srw);
+                co.connect(new DisposeConsumer<>(srw));
+            } catch (Throwable e) {
+                Exceptions.throwIfFatal(e);
+                EmptyDisposable.error(e, child);
+            }
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableReplay$Replay */
+    /* loaded from: classes.dex */
+    public static final class Replay<T> extends ConnectableObservable<T> {
+
+        /* renamed from: co */
+        private final ConnectableObservable<T> f158co;
+        private final Observable<T> observable;
+
+        Replay(ConnectableObservable<T> co, Observable<T> observable) {
+            this.f158co = co;
+            this.observable = observable;
+        }
+
+        @Override // p005io.reactivex.observables.ConnectableObservable
+        public void connect(Consumer<? super Disposable> connection) {
+            this.f158co.connect(connection);
+        }
+
+        @Override // p005io.reactivex.Observable
+        protected void subscribeActual(Observer<? super T> observer) {
+            this.observable.subscribe(observer);
+        }
+    }
+}

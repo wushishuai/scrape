@@ -1,0 +1,185 @@
+package p005io.reactivex.disposables;
+
+import java.util.ArrayList;
+import java.util.List;
+import p005io.reactivex.annotations.NonNull;
+import p005io.reactivex.exceptions.CompositeException;
+import p005io.reactivex.exceptions.Exceptions;
+import p005io.reactivex.internal.disposables.DisposableContainer;
+import p005io.reactivex.internal.functions.ObjectHelper;
+import p005io.reactivex.internal.util.ExceptionHelper;
+import p005io.reactivex.internal.util.OpenHashSet;
+
+/* renamed from: io.reactivex.disposables.CompositeDisposable */
+/* loaded from: classes.dex */
+public final class CompositeDisposable implements Disposable, DisposableContainer {
+    volatile boolean disposed;
+    OpenHashSet<Disposable> resources;
+
+    public CompositeDisposable() {
+    }
+
+    public CompositeDisposable(@NonNull Disposable... resources) {
+        ObjectHelper.requireNonNull(resources, "resources is null");
+        this.resources = new OpenHashSet<>(resources.length + 1);
+        for (Disposable d : resources) {
+            ObjectHelper.requireNonNull(d, "Disposable item is null");
+            this.resources.add(d);
+        }
+    }
+
+    public CompositeDisposable(@NonNull Iterable<? extends Disposable> resources) {
+        ObjectHelper.requireNonNull(resources, "resources is null");
+        this.resources = new OpenHashSet<>();
+        for (Disposable d : resources) {
+            ObjectHelper.requireNonNull(d, "Disposable item is null");
+            this.resources.add(d);
+        }
+    }
+
+    @Override // p005io.reactivex.disposables.Disposable
+    public void dispose() {
+        if (!this.disposed) {
+            synchronized (this) {
+                if (!this.disposed) {
+                    this.disposed = true;
+                    OpenHashSet<Disposable> set = this.resources;
+                    this.resources = null;
+                    dispose(set);
+                }
+            }
+        }
+    }
+
+    @Override // p005io.reactivex.disposables.Disposable
+    public boolean isDisposed() {
+        return this.disposed;
+    }
+
+    @Override // p005io.reactivex.internal.disposables.DisposableContainer
+    public boolean add(@NonNull Disposable d) {
+        ObjectHelper.requireNonNull(d, "d is null");
+        if (!this.disposed) {
+            synchronized (this) {
+                if (!this.disposed) {
+                    OpenHashSet<Disposable> set = this.resources;
+                    if (set == null) {
+                        set = new OpenHashSet<>();
+                        this.resources = set;
+                    }
+                    set.add(d);
+                    return true;
+                }
+            }
+        }
+        d.dispose();
+        return false;
+    }
+
+    public boolean addAll(@NonNull Disposable... ds) {
+        ObjectHelper.requireNonNull(ds, "ds is null");
+        if (!this.disposed) {
+            synchronized (this) {
+                if (!this.disposed) {
+                    OpenHashSet<Disposable> set = this.resources;
+                    if (set == null) {
+                        set = new OpenHashSet<>(ds.length + 1);
+                        this.resources = set;
+                    }
+                    for (Disposable d : ds) {
+                        ObjectHelper.requireNonNull(d, "d is null");
+                        set.add(d);
+                    }
+                    return true;
+                }
+            }
+        }
+        for (Disposable d2 : ds) {
+            d2.dispose();
+        }
+        return false;
+    }
+
+    @Override // p005io.reactivex.internal.disposables.DisposableContainer
+    public boolean remove(@NonNull Disposable d) {
+        if (!delete(d)) {
+            return false;
+        }
+        d.dispose();
+        return true;
+    }
+
+    @Override // p005io.reactivex.internal.disposables.DisposableContainer
+    public boolean delete(@NonNull Disposable d) {
+        ObjectHelper.requireNonNull(d, "Disposable item is null");
+        if (this.disposed) {
+            return false;
+        }
+        synchronized (this) {
+            if (this.disposed) {
+                return false;
+            }
+            OpenHashSet<Disposable> set = this.resources;
+            if (set != null && set.remove(d)) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    public void clear() {
+        if (!this.disposed) {
+            synchronized (this) {
+                if (!this.disposed) {
+                    OpenHashSet<Disposable> set = this.resources;
+                    this.resources = null;
+                    dispose(set);
+                }
+            }
+        }
+    }
+
+    public int size() {
+        int i = 0;
+        if (this.disposed) {
+            return 0;
+        }
+        synchronized (this) {
+            if (this.disposed) {
+                return 0;
+            }
+            OpenHashSet<Disposable> set = this.resources;
+            if (set != null) {
+                i = set.size();
+            }
+            return i;
+        }
+    }
+
+    void dispose(OpenHashSet<Disposable> set) {
+        if (set != null) {
+            Object[] array = set.keys();
+            List<Throwable> errors = null;
+            for (Object o : array) {
+                if (o instanceof Disposable) {
+                    try {
+                        ((Disposable) o).dispose();
+                    } catch (Throwable ex) {
+                        Exceptions.throwIfFatal(ex);
+                        if (errors == null) {
+                            errors = new ArrayList<>();
+                        }
+                        errors.add(ex);
+                    }
+                }
+            }
+            if (errors == null) {
+                return;
+            }
+            if (errors.size() == 1) {
+                throw ExceptionHelper.wrapOrThrow(errors.get(0));
+            }
+            throw new CompositeException(errors);
+        }
+    }
+}

@@ -23,6 +23,7 @@ public class HookMessage implements IXposedHookLoadPackage {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     XposedBridge.log("Called afterHookedMethod");
+                    param.setResult("Hooked");
                 }
             });
         }

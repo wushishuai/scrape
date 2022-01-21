@@ -1,0 +1,29 @@
+{
+  "projectVersion": 0,
+  "files": [
+    "D:\\program\\scrape\\chapter13\\scrape-app8.apk"
+  ],
+  "treeExpansions": [
+    [
+      "资源文件",
+      "scrape-app8.apk"
+    ],
+    [
+      "lib",
+      "资源文件",
+      "scrape-app8.apk"
+    ],
+    [
+      "arm64-v8a",
+      "lib",
+      "资源文件",
+      "scrape-app8.apk"
+    ]
+  ],
+  "codeData": {
+    "comments": [],
+    "renames": []
+  },
+  "openTabs": [],
+  "activeTab": -1
+}

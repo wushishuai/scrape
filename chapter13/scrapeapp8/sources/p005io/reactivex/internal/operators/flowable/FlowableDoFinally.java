@@ -1,0 +1,249 @@
+package p005io.reactivex.internal.operators.flowable;
+
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
+import p005io.reactivex.Flowable;
+import p005io.reactivex.FlowableSubscriber;
+import p005io.reactivex.annotations.Nullable;
+import p005io.reactivex.exceptions.Exceptions;
+import p005io.reactivex.functions.Action;
+import p005io.reactivex.internal.fuseable.ConditionalSubscriber;
+import p005io.reactivex.internal.fuseable.QueueSubscription;
+import p005io.reactivex.internal.subscriptions.BasicIntQueueSubscription;
+import p005io.reactivex.internal.subscriptions.SubscriptionHelper;
+import p005io.reactivex.plugins.RxJavaPlugins;
+
+/* renamed from: io.reactivex.internal.operators.flowable.FlowableDoFinally */
+/* loaded from: classes.dex */
+public final class FlowableDoFinally<T> extends AbstractFlowableWithUpstream<T, T> {
+    final Action onFinally;
+
+    public FlowableDoFinally(Flowable<T> source, Action onFinally) {
+        super(source);
+        this.onFinally = onFinally;
+    }
+
+    @Override // p005io.reactivex.Flowable
+    protected void subscribeActual(Subscriber<? super T> s) {
+        if (s instanceof ConditionalSubscriber) {
+            this.source.subscribe((FlowableSubscriber) new DoFinallyConditionalSubscriber((ConditionalSubscriber) s, this.onFinally));
+        } else {
+            this.source.subscribe((FlowableSubscriber) new DoFinallySubscriber(s, this.onFinally));
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.flowable.FlowableDoFinally$DoFinallySubscriber */
+    /* loaded from: classes.dex */
+    static final class DoFinallySubscriber<T> extends BasicIntQueueSubscription<T> implements FlowableSubscriber<T> {
+        private static final long serialVersionUID = 4109457741734051389L;
+        final Subscriber<? super T> downstream;
+        final Action onFinally;
+
+        /* renamed from: qs */
+        QueueSubscription<T> f121qs;
+        boolean syncFused;
+        Subscription upstream;
+
+        DoFinallySubscriber(Subscriber<? super T> actual, Action onFinally) {
+            this.downstream = actual;
+            this.onFinally = onFinally;
+        }
+
+        @Override // p005io.reactivex.FlowableSubscriber, org.reactivestreams.Subscriber
+        public void onSubscribe(Subscription s) {
+            if (SubscriptionHelper.validate(this.upstream, s)) {
+                this.upstream = s;
+                if (s instanceof QueueSubscription) {
+                    this.f121qs = (QueueSubscription) s;
+                }
+                this.downstream.onSubscribe(this);
+            }
+        }
+
+        @Override // org.reactivestreams.Subscriber
+        public void onNext(T t) {
+            this.downstream.onNext(t);
+        }
+
+        @Override // org.reactivestreams.Subscriber
+        public void onError(Throwable t) {
+            this.downstream.onError(t);
+            runFinally();
+        }
+
+        @Override // org.reactivestreams.Subscriber
+        public void onComplete() {
+            this.downstream.onComplete();
+            runFinally();
+        }
+
+        @Override // org.reactivestreams.Subscription
+        public void cancel() {
+            this.upstream.cancel();
+            runFinally();
+        }
+
+        @Override // org.reactivestreams.Subscription
+        public void request(long n) {
+            this.upstream.request(n);
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.QueueFuseable
+        public int requestFusion(int mode) {
+            QueueSubscription<T> qs = this.f121qs;
+            boolean z = false;
+            if (qs == null || (mode & 4) != 0) {
+                return 0;
+            }
+            int m = qs.requestFusion(mode);
+            if (m != 0) {
+                if (m == 1) {
+                    z = true;
+                }
+                this.syncFused = z;
+            }
+            return m;
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.SimpleQueue
+        public void clear() {
+            this.f121qs.clear();
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.SimpleQueue
+        public boolean isEmpty() {
+            return this.f121qs.isEmpty();
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.SimpleQueue
+        @Nullable
+        public T poll() throws Exception {
+            T v = this.f121qs.poll();
+            if (v == null && this.syncFused) {
+                runFinally();
+            }
+            return v;
+        }
+
+        void runFinally() {
+            if (compareAndSet(0, 1)) {
+                try {
+                    this.onFinally.run();
+                } catch (Throwable ex) {
+                    Exceptions.throwIfFatal(ex);
+                    RxJavaPlugins.onError(ex);
+                }
+            }
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.flowable.FlowableDoFinally$DoFinallyConditionalSubscriber */
+    /* loaded from: classes.dex */
+    static final class DoFinallyConditionalSubscriber<T> extends BasicIntQueueSubscription<T> implements ConditionalSubscriber<T> {
+        private static final long serialVersionUID = 4109457741734051389L;
+        final ConditionalSubscriber<? super T> downstream;
+        final Action onFinally;
+
+        /* renamed from: qs */
+        QueueSubscription<T> f120qs;
+        boolean syncFused;
+        Subscription upstream;
+
+        DoFinallyConditionalSubscriber(ConditionalSubscriber<? super T> actual, Action onFinally) {
+            this.downstream = actual;
+            this.onFinally = onFinally;
+        }
+
+        @Override // p005io.reactivex.FlowableSubscriber, org.reactivestreams.Subscriber
+        public void onSubscribe(Subscription s) {
+            if (SubscriptionHelper.validate(this.upstream, s)) {
+                this.upstream = s;
+                if (s instanceof QueueSubscription) {
+                    this.f120qs = (QueueSubscription) s;
+                }
+                this.downstream.onSubscribe(this);
+            }
+        }
+
+        @Override // org.reactivestreams.Subscriber
+        public void onNext(T t) {
+            this.downstream.onNext(t);
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.ConditionalSubscriber
+        public boolean tryOnNext(T t) {
+            return this.downstream.tryOnNext(t);
+        }
+
+        @Override // org.reactivestreams.Subscriber
+        public void onError(Throwable t) {
+            this.downstream.onError(t);
+            runFinally();
+        }
+
+        @Override // org.reactivestreams.Subscriber
+        public void onComplete() {
+            this.downstream.onComplete();
+            runFinally();
+        }
+
+        @Override // org.reactivestreams.Subscription
+        public void cancel() {
+            this.upstream.cancel();
+            runFinally();
+        }
+
+        @Override // org.reactivestreams.Subscription
+        public void request(long n) {
+            this.upstream.request(n);
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.QueueFuseable
+        public int requestFusion(int mode) {
+            QueueSubscription<T> qs = this.f120qs;
+            boolean z = false;
+            if (qs == null || (mode & 4) != 0) {
+                return 0;
+            }
+            int m = qs.requestFusion(mode);
+            if (m != 0) {
+                if (m == 1) {
+                    z = true;
+                }
+                this.syncFused = z;
+            }
+            return m;
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.SimpleQueue
+        public void clear() {
+            this.f120qs.clear();
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.SimpleQueue
+        public boolean isEmpty() {
+            return this.f120qs.isEmpty();
+        }
+
+        @Override // p005io.reactivex.internal.fuseable.SimpleQueue
+        @Nullable
+        public T poll() throws Exception {
+            T v = this.f120qs.poll();
+            if (v == null && this.syncFused) {
+                runFinally();
+            }
+            return v;
+        }
+
+        void runFinally() {
+            if (compareAndSet(0, 1)) {
+                try {
+                    this.onFinally.run();
+                } catch (Throwable ex) {
+                    Exceptions.throwIfFatal(ex);
+                    RxJavaPlugins.onError(ex);
+                }
+            }
+        }
+    }
+}

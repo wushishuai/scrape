@@ -1,0 +1,186 @@
+package p005io.reactivex.internal.schedulers;
+
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import p005io.reactivex.Scheduler;
+import p005io.reactivex.annotations.NonNull;
+import p005io.reactivex.disposables.Disposable;
+import p005io.reactivex.disposables.Disposables;
+import p005io.reactivex.internal.disposables.EmptyDisposable;
+import p005io.reactivex.internal.functions.ObjectHelper;
+import p005io.reactivex.plugins.RxJavaPlugins;
+
+/* renamed from: io.reactivex.internal.schedulers.TrampolineScheduler */
+/* loaded from: classes.dex */
+public final class TrampolineScheduler extends Scheduler {
+    private static final TrampolineScheduler INSTANCE = new TrampolineScheduler();
+
+    public static TrampolineScheduler instance() {
+        return INSTANCE;
+    }
+
+    @Override // p005io.reactivex.Scheduler
+    @NonNull
+    public Scheduler.Worker createWorker() {
+        return new TrampolineWorker();
+    }
+
+    TrampolineScheduler() {
+    }
+
+    @Override // p005io.reactivex.Scheduler
+    @NonNull
+    public Disposable scheduleDirect(@NonNull Runnable run) {
+        RxJavaPlugins.onSchedule(run).run();
+        return EmptyDisposable.INSTANCE;
+    }
+
+    @Override // p005io.reactivex.Scheduler
+    @NonNull
+    public Disposable scheduleDirect(@NonNull Runnable run, long delay, TimeUnit unit) {
+        try {
+            unit.sleep(delay);
+            RxJavaPlugins.onSchedule(run).run();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            RxJavaPlugins.onError(ex);
+        }
+        return EmptyDisposable.INSTANCE;
+    }
+
+    /* renamed from: io.reactivex.internal.schedulers.TrampolineScheduler$TrampolineWorker */
+    /* loaded from: classes.dex */
+    static final class TrampolineWorker extends Scheduler.Worker implements Disposable {
+        volatile boolean disposed;
+        final PriorityBlockingQueue<TimedRunnable> queue = new PriorityBlockingQueue<>();
+        private final AtomicInteger wip = new AtomicInteger();
+        final AtomicInteger counter = new AtomicInteger();
+
+        TrampolineWorker() {
+        }
+
+        @Override // p005io.reactivex.Scheduler.Worker
+        @NonNull
+        public Disposable schedule(@NonNull Runnable action) {
+            return enqueue(action, now(TimeUnit.MILLISECONDS));
+        }
+
+        @Override // p005io.reactivex.Scheduler.Worker
+        @NonNull
+        public Disposable schedule(@NonNull Runnable action, long delayTime, @NonNull TimeUnit unit) {
+            long execTime = now(TimeUnit.MILLISECONDS) + unit.toMillis(delayTime);
+            return enqueue(new SleepingRunnable(action, this, execTime), execTime);
+        }
+
+        Disposable enqueue(Runnable action, long execTime) {
+            if (this.disposed) {
+                return EmptyDisposable.INSTANCE;
+            }
+            TimedRunnable timedRunnable = new TimedRunnable(action, Long.valueOf(execTime), this.counter.incrementAndGet());
+            this.queue.add(timedRunnable);
+            if (this.wip.getAndIncrement() != 0) {
+                return Disposables.fromRunnable(new AppendToQueueTask(timedRunnable));
+            }
+            int missed = 1;
+            while (!this.disposed) {
+                TimedRunnable polled = this.queue.poll();
+                if (polled == null) {
+                    missed = this.wip.addAndGet(-missed);
+                    if (missed == 0) {
+                        return EmptyDisposable.INSTANCE;
+                    }
+                } else if (!polled.disposed) {
+                    polled.run.run();
+                }
+            }
+            this.queue.clear();
+            return EmptyDisposable.INSTANCE;
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public void dispose() {
+            this.disposed = true;
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public boolean isDisposed() {
+            return this.disposed;
+        }
+
+        /* JADX INFO: Access modifiers changed from: package-private */
+        /* renamed from: io.reactivex.internal.schedulers.TrampolineScheduler$TrampolineWorker$AppendToQueueTask */
+        /* loaded from: classes.dex */
+        public final class AppendToQueueTask implements Runnable {
+            final TimedRunnable timedRunnable;
+
+            AppendToQueueTask(TimedRunnable timedRunnable) {
+                this.timedRunnable = timedRunnable;
+            }
+
+            @Override // java.lang.Runnable
+            public void run() {
+                this.timedRunnable.disposed = true;
+                TrampolineWorker.this.queue.remove(this.timedRunnable);
+            }
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.schedulers.TrampolineScheduler$TimedRunnable */
+    /* loaded from: classes.dex */
+    public static final class TimedRunnable implements Comparable<TimedRunnable> {
+        final int count;
+        volatile boolean disposed;
+        final long execTime;
+        final Runnable run;
+
+        TimedRunnable(Runnable run, Long execTime, int count) {
+            this.run = run;
+            this.execTime = execTime.longValue();
+            this.count = count;
+        }
+
+        public int compareTo(TimedRunnable that) {
+            int result = ObjectHelper.compare(this.execTime, that.execTime);
+            if (result == 0) {
+                return ObjectHelper.compare(this.count, that.count);
+            }
+            return result;
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.schedulers.TrampolineScheduler$SleepingRunnable */
+    /* loaded from: classes.dex */
+    static final class SleepingRunnable implements Runnable {
+        private final long execTime;
+        private final Runnable run;
+        private final TrampolineWorker worker;
+
+        SleepingRunnable(Runnable run, TrampolineWorker worker, long execTime) {
+            this.run = run;
+            this.worker = worker;
+            this.execTime = execTime;
+        }
+
+        @Override // java.lang.Runnable
+        public void run() {
+            if (!this.worker.disposed) {
+                long t = this.worker.now(TimeUnit.MILLISECONDS);
+                long j = this.execTime;
+                if (j > t) {
+                    try {
+                        Thread.sleep(j - t);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        RxJavaPlugins.onError(e);
+                        return;
+                    }
+                }
+                if (!this.worker.disposed) {
+                    this.run.run();
+                }
+            }
+        }
+    }
+}

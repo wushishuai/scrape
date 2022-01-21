@@ -1,0 +1,191 @@
+package p005io.reactivex.internal.operators.observable;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import p005io.reactivex.Observable;
+import p005io.reactivex.ObservableSource;
+import p005io.reactivex.Observer;
+import p005io.reactivex.disposables.Disposable;
+import p005io.reactivex.exceptions.Exceptions;
+import p005io.reactivex.internal.disposables.DisposableHelper;
+import p005io.reactivex.internal.disposables.EmptyDisposable;
+import p005io.reactivex.plugins.RxJavaPlugins;
+
+/* renamed from: io.reactivex.internal.operators.observable.ObservableAmb */
+/* loaded from: classes.dex */
+public final class ObservableAmb<T> extends Observable<T> {
+    final ObservableSource<? extends T>[] sources;
+    final Iterable<? extends ObservableSource<? extends T>> sourcesIterable;
+
+    public ObservableAmb(ObservableSource<? extends T>[] sources, Iterable<? extends ObservableSource<? extends T>> sourcesIterable) {
+        this.sources = sources;
+        this.sourcesIterable = sourcesIterable;
+    }
+
+    /* JADX INFO: Multiple debug info for r5v1 int: [D('count' int), D('b' io.reactivex.ObservableSource<? extends T>[])] */
+    @Override // p005io.reactivex.Observable
+    public void subscribeActual(Observer<? super T> observer) {
+        Throwable e;
+        ObservableSource<? extends T>[] sources = this.sources;
+        int count = 0;
+        if (sources == null) {
+            sources = new Observable[8];
+            try {
+                for (ObservableSource<? extends T> p : this.sourcesIterable) {
+                    if (p == null) {
+                        EmptyDisposable.error(new NullPointerException("One of the sources is null"), observer);
+                        return;
+                    }
+                    if (count == sources.length) {
+                        ObservableSource<? extends T>[] b = new ObservableSource[(count >> 2) + count];
+                        System.arraycopy(sources, 0, b, 0, count);
+                        sources = b;
+                    }
+                    int count2 = count + 1;
+                    try {
+                        sources[count] = p;
+                        count = count2;
+                    } catch (Throwable th) {
+                        e = th;
+                        Exceptions.throwIfFatal(e);
+                        EmptyDisposable.error(e, observer);
+                        return;
+                    }
+                }
+            } catch (Throwable th2) {
+                e = th2;
+            }
+        } else {
+            count = sources.length;
+        }
+        if (count == 0) {
+            EmptyDisposable.complete(observer);
+        } else if (count == 1) {
+            sources[0].subscribe(observer);
+        } else {
+            new AmbCoordinator<>(observer, count).subscribe(sources);
+        }
+    }
+
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableAmb$AmbCoordinator */
+    /* loaded from: classes.dex */
+    static final class AmbCoordinator<T> implements Disposable {
+        final Observer<? super T> downstream;
+        final AmbInnerObserver<T>[] observers;
+        final AtomicInteger winner = new AtomicInteger();
+
+        AmbCoordinator(Observer<? super T> actual, int count) {
+            this.downstream = actual;
+            this.observers = new AmbInnerObserver[count];
+        }
+
+        public void subscribe(ObservableSource<? extends T>[] sources) {
+            AmbInnerObserver<T>[] as = this.observers;
+            int len = as.length;
+            for (int i = 0; i < len; i++) {
+                as[i] = new AmbInnerObserver<>(this, i + 1, this.downstream);
+            }
+            this.winner.lazySet(0);
+            this.downstream.onSubscribe(this);
+            for (int i2 = 0; i2 < len && this.winner.get() == 0; i2++) {
+                sources[i2].subscribe(as[i2]);
+            }
+        }
+
+        public boolean win(int index) {
+            int w = this.winner.get();
+            if (w == 0) {
+                if (!this.winner.compareAndSet(0, index)) {
+                    return false;
+                }
+                AmbInnerObserver<T>[] a = this.observers;
+                int n = a.length;
+                for (int i = 0; i < n; i++) {
+                    if (i + 1 != index) {
+                        a[i].dispose();
+                    }
+                }
+                return true;
+            } else if (w == index) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public void dispose() {
+            if (this.winner.get() != -1) {
+                this.winner.lazySet(-1);
+                for (AmbInnerObserver<T> a : this.observers) {
+                    a.dispose();
+                }
+            }
+        }
+
+        @Override // p005io.reactivex.disposables.Disposable
+        public boolean isDisposed() {
+            return this.winner.get() == -1;
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: package-private */
+    /* renamed from: io.reactivex.internal.operators.observable.ObservableAmb$AmbInnerObserver */
+    /* loaded from: classes.dex */
+    public static final class AmbInnerObserver<T> extends AtomicReference<Disposable> implements Observer<T> {
+        private static final long serialVersionUID = -1185974347409665484L;
+        final Observer<? super T> downstream;
+        final int index;
+        final AmbCoordinator<T> parent;
+        boolean won;
+
+        AmbInnerObserver(AmbCoordinator<T> parent, int index, Observer<? super T> downstream) {
+            this.parent = parent;
+            this.index = index;
+            this.downstream = downstream;
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onSubscribe(Disposable d) {
+            DisposableHelper.setOnce(this, d);
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onNext(T t) {
+            if (this.won) {
+                this.downstream.onNext(t);
+            } else if (this.parent.win(this.index)) {
+                this.won = true;
+                this.downstream.onNext(t);
+            } else {
+                get().dispose();
+            }
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onError(Throwable t) {
+            if (this.won) {
+                this.downstream.onError(t);
+            } else if (this.parent.win(this.index)) {
+                this.won = true;
+                this.downstream.onError(t);
+            } else {
+                RxJavaPlugins.onError(t);
+            }
+        }
+
+        @Override // p005io.reactivex.Observer
+        public void onComplete() {
+            if (this.won) {
+                this.downstream.onComplete();
+            } else if (this.parent.win(this.index)) {
+                this.won = true;
+                this.downstream.onComplete();
+            }
+        }
+
+        public void dispose() {
+            DisposableHelper.dispose(this);
+        }
+    }
+}

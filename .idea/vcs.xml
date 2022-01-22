@@ -2,6 +2,8 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/chapter13/unidbg" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/chapter13/unidbgserver" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/chapter8/DeepLearningSlideCaptcha2" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/chapter9/proxypooltest" vcs="Git" />
   </component>

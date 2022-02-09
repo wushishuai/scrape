@@ -8,6 +8,7 @@
       <sourceFolder url="file://$MODULE_DIR$/chapter15/scrapytutorial" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/chapter15/scrapypyppeteerdemo" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/chapter15/scrapysplashdemo" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/chapter15/scrapyuniversaldemo" isTestSource="false" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.7 (scrape)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

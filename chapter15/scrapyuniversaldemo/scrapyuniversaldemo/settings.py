@@ -1,4 +1,4 @@
-# Scrapy settings for scrapypyppeteerdemo project
+# Scrapy settings for scrapyuniversaldemo project
 #
 # For simplicity, this file contains only settings considered important or
 # commonly used. You can find more settings consulting the documentation:
@@ -7,23 +7,20 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
-BOT_NAME = 'scrapypyppeteerdemo'
+BOT_NAME = 'scrapyuniversaldemo'
 
-SPIDER_MODULES = ['scrapypyppeteerdemo.spiders']
-NEWSPIDER_MODULE = 'scrapypyppeteerdemo.spiders'
+SPIDER_MODULES = ['scrapyuniversaldemo.spiders']
+NEWSPIDER_MODULE = 'scrapyuniversaldemo.spiders'
 
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
-#USER_AGENT = 'scrapypyppeteerdemo (+http://www.yourdomain.com)'
+#USER_AGENT = 'scrapyuniversaldemo (+http://www.yourdomain.com)'
 
 # Obey robots.txt rules
-ROBOTSTXT_OBEY = False
-TWISTED_REACTOR = 'twisted.internet.asyncioreactor.AsyncioSelectorReactor'
+ROBOTSTXT_OBEY = True
+
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
-CONCURRENT_REQUESTS = 3
-
-
-
+#CONCURRENT_REQUESTS = 32
 
 # Configure a delay for requests for the same website (default: 0)
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
@@ -48,19 +45,15 @@ CONCURRENT_REQUESTS = 3
 # Enable or disable spider middlewares
 # See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 #SPIDER_MIDDLEWARES = {
-#    'scrapypyppeteerdemo.middlewares.ScrapypyppeteerdemoSpiderMiddleware': 543,
+#    'scrapyuniversaldemo.middlewares.ScrapyuniversaldemoSpiderMiddleware': 543,
 #}
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #DOWNLOADER_MIDDLEWARES = {
-#    'scrapypyppeteerdemo.middlewares.ScrapypyppeteerdemoDownloaderMiddleware': 543,
+#    'scrapyuniversaldemo.middlewares.ScrapyuniversaldemoDownloaderMiddleware': 543,
 #}
-DOWNLOADER_MIDDLEWARES = {
-    'gerapy_pyppeteer.downloadermiddlewares.PyppeteerMiddleware': 543,
-   # 'scrapypyppeteerdemo.middlewares.PyppeteerMiddleware': 543,
 
-}
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
 #EXTENSIONS = {
@@ -70,7 +63,7 @@ DOWNLOADER_MIDDLEWARES = {
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 #ITEM_PIPELINES = {
-#    'scrapypyppeteerdemo.pipelines.ScrapypyppeteerdemoPipeline': 300,
+#    'scrapyuniversaldemo.pipelines.ScrapyuniversaldemoPipeline': 300,
 #}
 
 # Enable and configure the AutoThrottle extension (disabled by default)

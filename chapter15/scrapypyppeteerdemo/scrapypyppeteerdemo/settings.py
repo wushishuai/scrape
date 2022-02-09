@@ -55,8 +55,8 @@ CONCURRENT_REQUESTS = 3
 #    'scrapypyppeteerdemo.middlewares.ScrapypyppeteerdemoDownloaderMiddleware': 543,
 #}
 DOWNLOADER_MIDDLEWARES = {
-    # 'gerapy_pyppeteer.downloadermiddlewares.PyppeteerMiddleware': 543,
-   'scrapypyppeteerdemo.middlewares.PyppeteerMiddleware': 543,
+    'gerapy_pyppeteer.downloadermiddlewares.PyppeteerMiddleware': 543,
+   # 'scrapypyppeteerdemo.middlewares.PyppeteerMiddleware': 543,
 
 }
 # Enable or disable extensions

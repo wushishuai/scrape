@@ -62,7 +62,7 @@ TEST_TIMEOUT = env.int('TEST_TIMEOUT', 10)
 TEST_BATCH = env.int('TEST_BATCH', 20)
 # test url
 TEST_URL_MAP = {
-    'antispider7': 'https://antispider7.scrape.center/'
+    'antispider7': 'https://antispider7.scrape.center'
 }
 
 # definition of api

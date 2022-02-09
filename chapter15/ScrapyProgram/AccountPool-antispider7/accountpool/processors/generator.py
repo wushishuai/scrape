@@ -56,7 +56,7 @@ class Antispider7Generator(BaseGenerator):
         if self.credential_operator.get(username):
             logger.debug(f'credential of {username} exists, skip')
             return
-        login_url = 'https://antispider7.scrape.center/api/login'
+        login_url = 'https://antispider7.scrape.center/login'
         s = requests.Session()
         r = s.post(login_url, json={
             'username': username,
